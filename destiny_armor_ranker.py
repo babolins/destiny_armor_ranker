@@ -5,22 +5,25 @@ import numpy as np
 import itertools as it
 from pathlib import Path
 from argparse import ArgumentParser
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import maximum_bipartite_matching, min_weight_full_bipartite_matching
 
 
-def select_armor(data, class_, type_, stat_a, stat_b):
+def select_armor(data, class_, type_, combos, N):
     """
-    Select the best legendary armor of a particular class and type with
-    stat_a >= stat_b. The "Selected" column of the input DataFrame is modified
-    in place. The best piece of armor is the piece with the highest combined
-    half tiers of stat_a and stat_b, with ties broken by the total number of
-    tiers, the total number of high stats, and the base stat total.
+    Select the best legendary armor of a particular class and type by assigning
+    armor pieces to various categories corresponding to particular stat combos.
+    Then an attempt is made to optimally find the top N armor pieces in each
+    category by ranking the sum of the top 2 stat values, the top stat value,
+    the sum of the top 3 stat values, and the base stat total and using the
+    resulting ranks as weights in a bipartite matching problem.
 
     Parameters:
         data    --  The DataFrame containing armor info, this is modified
         class_  --  The class that can equip the armor
         type_   --  The armor slot
-        stat_a  --  the higher stat
-        stat_b  --  the lower stat
+        combos  --  The stat combos that are considered important
+        N       --  The number of armor pieces to keep
 
     Returns:
         None
@@ -28,26 +31,43 @@ def select_armor(data, class_, type_, stat_a, stat_b):
 
     data_subset = data.query(
         "Equippable == '{}' & Type == '{}' & Tier == 'Legendary' & `Not Trash`".format(class_, type_)
-    ).query(
-        "`High {stat_a}` & `High {stat_b}` & `{stat_a} (Base)` >= `{stat_b} (Base)`".format(
-            stat_a=stat_a,
-            stat_b=stat_b
-        ),
     ).copy()
 
-    if len(data_subset.index) > 0:
-        data_subset["Score"] = data_subset["{} Tiers".format(stat_a)] + data_subset["{} Tiers".format(stat_b)]
+    data_subset.sort_values(
+        by=["Top 2", "Top 1", "Top 3", "Total (Base)"],
+        ascending=False,
+        inplace=True
+    )
+    data_subset["Rank"] = np.arange(len(data_subset))[::-1] + 1
 
-        data_subset.sort_values(
-            by=["Score", "Total Tiers", "Total High Stats", "Total (Base)"],
-            ascending=False,
-            inplace=True
-        )
+    labels = ["{}_{}".format(stat_a, stat_b) for stat_a, stat_b in combos]
+    for label, (stat_a, stat_b) in zip(labels, combos):
+        data_subset[label] = data_subset["High {}".format(stat_a)] & data_subset["High {}".format(stat_b)]
 
-        data.loc[data_subset.iloc[0].name, "Selected"] = True
+    columns = {label: [i * N + j for j in range(N)] for i, label in enumerate(labels)}
+    row_ind, col_ind, mat_dat = [], [], []
+    for col in data_subset[labels]:
+        for i, (idx, val) in enumerate(data_subset[col].items()):
+            if val:
+                for j in columns[col]:
+                    row_ind.append(i)
+                    col_ind.append(j)
+                    mat_dat.append(data_subset.loc[idx, "Rank"])
+    graph = csr_matrix((mat_dat, (row_ind, col_ind)), shape=(len(data_subset), 2 * len(labels)))
+
+    matching = maximum_bipartite_matching(graph)
+    empty, = np.where(matching < 0)
+    if len(empty) > 0:
+        row_ind, col_ind, mat_dat = zip(*[(i, j, v) for i, j, v in zip(row_ind, col_ind, mat_data) if j not in empty])
+        graph = csr_matrix((mat_dat, (row_ind, col_ind)))
+
+    row_ind, col_ind = min_weight_full_bipartite_matching(graph, maximize=True)
+
+    for i in row_ind:
+        data.loc[data_subset.iloc[i].name, "Selected"] = True
 
 
-def process_armor_csv(armor_file, min_tiers, min_stat_total):
+def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N):
     """
     Read a DIM destinyArmor.csv file, determine the best legendary armor
     pieces, and mark the remaining armor pieces as junk. Exotic armor and
@@ -56,11 +76,15 @@ def process_armor_csv(armor_file, min_tiers, min_stat_total):
 
     Parameters:
         armor_file      --  The path to the DIM destinyArmor.csv file
-        min_tiers       --  The minimum number of tiers the top two stats need
+        min_points      --  The minimum number of points the top two stats need
                             to have in order for an armor piece to be
-                            considered useful
+                            considered high stat
+        point_threshold --  The minimum threshold for the top stat to be
+                            considered a useful roll
         min_stat_total  --  The minimum base stat total for an armor piece to
                             be considered useful
+        N               --  The number of pieces from each class-specific stat
+                            combo to keep
 
     Returns:
         None
@@ -88,23 +112,55 @@ def process_armor_csv(armor_file, min_tiers, min_stat_total):
         "Strength"
     ]
 
+    _class_combos = {
+        "Hunter": [
+            ("Mobility", "Recovery"),
+            ("Mobility", "Discipline"),
+            ("Mobility", "Intellect"),
+            ("Mobility", "Strength"),
+            ("Recovery", "Discipline"),
+            ("Recovery", "Intellect"),
+            ("Recovery", "Strength")
+        ],
+        "Titan": [
+            ("Resilience", "Recovery"),
+            ("Resilience", "Discipline"),
+            ("Resilience", "Intellect"),
+            ("Resilience", "Strength"),
+            ("Recovery", "Discipline"),
+            ("Recovery", "Intellect"),
+            ("Recovery", "Strength")
+        ],
+        "Warlock": [
+            ("Recovery", "Discipline"),
+            ("Recovery", "Intellect"),
+            ("Recovery", "Strength")
+        ]
+    }
+
     base_path = Path(armor_file)
 
     data_orig = pd.read_csv(base_path)
     data = data_orig.copy()
 
     for stat in _stats:
-        data["{} Tiers".format(stat)] = np.floor(data["{} (Base)".format(stat)] * 2 / 10) / 2
-        data["High {}".format(stat)] = np.where(data["{} Tiers".format(stat)] >= min_tiers, True, False)
+        data["High {}".format(stat)] = (data["{} (Base)".format(stat)] >= min_points)
 
-    data["Total Tiers"] = sum(data["{} Tiers".format(stat)] for stat in _stats)
+    df = data[["{} (Base)".format(stat) for stat in _stats]].apply(lambda x: np.sort(x)[::-1], axis=1)
+    for i in range(1, 4):
+        data["Top {}".format(i)] = df.apply(lambda x: x[:i]).apply(np.sum)
+
     data["Total High Stats"] = sum(data["High {}".format(stat)] for stat in _stats)
-    data["Not Trash"] = (data["Total (Base)"] >= min_stat_total) & (data["Total High Stats"] >= 2)
-    data["Selected"] = np.where(data["Tier"] == "Exotic", True, False)
+    data["Not Trash"] = (
+        (data["Total (Base)"] >= min_stat_total) &
+        (data["Total High Stats"] >= 2) &
+        (data["Top 1"] >= point_threshold) &
+        (data["Top 2"] >= (point_threshold + min_points))
+    )
+    data["Selected"] = (data["Tier"] == "Exotic")
 
     for c, t in it.product(_classes, _types):
-        for a, b in it.permutations(_stats, 2):
-            select_armor(data, c, t, a, b)
+        select_armor(data, c, t, _class_combos[c], N)
 
     junk = data.query(
         "not Selected & Type != 'Hunter Cloak' & Type != 'Titan Mark' & Type != 'Warlock Bond'"
@@ -117,28 +173,39 @@ if __name__ == "__main__":
     parser = ArgumentParser(
         description="Select the best legendary armor pieces from a DIM destinyArmor.csv file and tag the rest of the "
                     "pieces as junk. Pieces are selected only if their stat total is above a threshold, and they have "
-                    "at least two stats above a second threshold. The pieces with the highest number of half tiers in "
-                    "their two highest stats are selected for each slot and combination of stats A and B such that "
-                    "stat A > stat B, with ties broken by total number of stat tiers, followed by the total number "
-                    "of high stats, and finally by highest base stat total. Class armor and Exotic armor is ignored, "
-                    "and armor more common than legendary is automatically marked as junk. A new destinyArmor_mod.csv "
-                    "file is output to be re-imported into DIM."
+                    "at least two stats above a second threshold. Armor is ranked by the sum of the top to base stat "
+                    "values, with ties broken by the top base stat value, then the sum of the top 3 base stat values "
+                    "and finally the overall base stat total and the ranks are used to try to optimally assign armor "
+                    "to categories that correspond to class-specific binary stat combos based on whether they have "
+                    "high values of those stats. Class armor and Exotic armor is ignored, and armor more common than "
+                    "legendary is automatically marked as junk. A new destinyArmor_mod.csv file is output to be "
+                    "re-imported into DIM."
     )
     parser.add_argument("file", metavar="FILE", help="the path to your DIM destinyArmor.csv file")
     parser.add_argument(
-        "--min_stat", default=15, type=int,
+        "--min_points", default=10, type=int,
         help="The minimum stat value that an armor piece must have in two separate stats in order for the armor piece "
-             "to be considered a high stat roll, will be rounded down to the nearest multiple of 5 (default: 15)"
+             "to be considered a high stat roll"
     )
     parser.add_argument(
-        "--min_stat_total", default=60, type=int,
-        help="The minimum base stat total that an armor piece must have in order to be considered useful (default: 60)"
+        "--point_threshold", default=15, type=int,
+        help="The minimum stat value that an armor piece must have in its higher stat to be considered high stat"
+    )
+    parser.add_argument(
+        "--min_stat_total", default=62, type=int,
+        help="The minimum base stat total that an armor piece must have in order to be considered useful"
+    )
+    parser.add_argument(
+        "--num", default=2, type=int,
+        help="The number of armor pieces from each category to keep"
     )
 
     args = parser.parse_args()
 
     process_armor_csv(
         args.file,
-        min_tiers=np.floor(args.min_stat * 2 / 10) / 2,
-        min_stat_total=args.min_stat_total
+        args.min_points,
+        args.point_threshold,
+        args.min_stat_total,
+        args.num
     )
