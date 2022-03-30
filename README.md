@@ -17,23 +17,8 @@ armor pieces marked as junk.
 
 The purpose of this program is to find and mark as junk armor pieces which fit the same niche so that you are only left
 with the very best armor pieces. What this means is that for a given class and armor slot (e.g. Titan helmets) and a
-combination of two stats, stat A and stat B, such that stat A >= stat B (e.g. resilience and intellect) it will find
-the best Titan helmet with high intellect and higher resilience and mark all of the similar Titan helmets as junk.
-
-The algorithm is as follows:
-
-1. Mark all armor pieces which are more common than legendary, have a base stat total less than 60, or have fewer than
-two stats above 15 as junk. These thresholds are adjustable with the `--min_stat_total` and `--min_stat` optional
-arguments.
-2. Calculate the total number of "half tiers" (stat values divided by 10, rounded down to the nearest half) and the
-number of stats with values over 15.
-3. For all armor slots and ordered pairs of stats, stat A and stat B, select all matching armor pieces and sort them
-according to:
-    1. Stat A tiers + stat B tiers
-    2. Total half tiers
-    3. Total number of high stats
-    4. Base stat total
-4. Mark all but the highest ranked armor piece as junk.
+combination of two stats, stat A and stat B (e.g. resilience and intellect), it will find the best Titan helmet with
+high intellect and high resilience and mark all of the similar Titan helmets as junk.
 
 It's important to note now that armor pieces more common than legendary are automatically marked as junk regardless of
 stat roll, and Exotic armor pieces are left alone, as are class armor pieces.
