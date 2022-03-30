@@ -5,8 +5,9 @@ import numpy as np
 import itertools as it
 from pathlib import Path
 from argparse import ArgumentParser
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, csc_matrix
 from scipy.sparse.csgraph import maximum_bipartite_matching, min_weight_full_bipartite_matching
+from scipy.optimize import linear_sum_assignment
 
 
 def select_armor(data, class_, type_, combos, N):
@@ -56,10 +57,11 @@ def select_armor(data, class_, type_, combos, N):
     graph = csr_matrix((mat_dat, (row_ind, col_ind)), shape=(len(data_subset), 2 * len(labels)))
 
     matching = maximum_bipartite_matching(graph)
-    empty, = np.where(matching < 0)
-    if len(empty) > 0:
-        row_ind, col_ind, mat_dat = zip(*[(i, j, v) for i, j, v in zip(row_ind, col_ind, mat_data) if j not in empty])
-        graph = csr_matrix((mat_dat, (row_ind, col_ind)))
+    empty_cols, = np.where(matching < 0)
+
+    if len(empty_cols) > 0:
+        remaining_cols = np.array([i for i in range(graph.shape[1]) if i not in empty_cols])
+        graph = csr_matrix(csc_matrix(graph)[:, remaining_cols])
 
     row_ind, col_ind = min_weight_full_bipartite_matching(graph, maximize=True)
 
