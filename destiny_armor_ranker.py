@@ -105,39 +105,26 @@ def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N
         "Leg Armor",
     ]
 
-    _stats = [
+    _block_a = [
         "Mobility",
         "Resilience",
-        "Recovery",
+        "Recovery"
+    ]
+
+    _block_b = [
         "Discipline",
         "Intellect",
         "Strength"
     ]
 
+    _stats = _block_a + _block_b
+
+    _combos = [(stat_a, stat_b) for stat_a, stat_b in it.product(_block_a, _block_b)]
+
     _class_combos = {
-        "Hunter": [
-            ("Mobility", "Recovery"),
-            ("Mobility", "Discipline"),
-            ("Mobility", "Intellect"),
-            ("Mobility", "Strength"),
-            ("Recovery", "Discipline"),
-            ("Recovery", "Intellect"),
-            ("Recovery", "Strength")
-        ],
-        "Titan": [
-            ("Resilience", "Recovery"),
-            ("Resilience", "Discipline"),
-            ("Resilience", "Intellect"),
-            ("Resilience", "Strength"),
-            ("Recovery", "Discipline"),
-            ("Recovery", "Intellect"),
-            ("Recovery", "Strength")
-        ],
-        "Warlock": [
-            ("Recovery", "Discipline"),
-            ("Recovery", "Intellect"),
-            ("Recovery", "Strength")
-        ]
+        "Hunter": _combos,
+        "Titan": _combos,
+        "Warlock": _combos
     }
 
     base_path = Path(armor_file)
