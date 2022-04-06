@@ -69,7 +69,7 @@ def select_armor(data, class_, type_, combos, N):
         data.loc[data_subset.iloc[i].name, "Selected"] = True
 
 
-def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N):
+def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N, h_exclude, t_exclude, w_exclude):
     """
     Read a DIM destinyArmor.csv file, determine the best legendary armor
     pieces, and mark the remaining armor pieces as junk. Exotic armor and
@@ -87,6 +87,9 @@ def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N
                             be considered useful
         N               --  The number of pieces from each class-specific stat
                             combo to keep
+        h_exclude       --  High stat rolls to exclude from Hunter armor pieces
+        t_exclude       --  High stat rolls to exclude from Titan armor pieces
+        w_exclude       --  High stat rolls to exclude from Warlock armor pieces
 
     Returns:
         None
@@ -122,9 +125,18 @@ def process_armor_csv(armor_file, min_points, point_threshold, min_stat_total, N
     _combos = [(stat_a, stat_b) for stat_a, stat_b in it.product(_block_a, _block_b)]
 
     _class_combos = {
-        "Hunter": _combos,
-        "Titan": _combos,
-        "Warlock": _combos
+        "Hunter": [
+            (stat_a, stat_b) for (stat_a, stat_b) in _combos
+            if ((stat_a not in h_exclude) and (stat_b not in h_exclude))
+        ],
+        "Titan": [
+            (stat_a, stat_b) for (stat_a, stat_b) in _combos
+            if ((stat_a not in t_exclude) and (stat_b not in t_exclude))
+        ],
+        "Warlock": [
+            (stat_a, stat_b) for (stat_a, stat_b) in _combos
+            if ((stat_a not in w_exclude) and (stat_b not in w_exclude))
+        ],
     }
 
     base_path = Path(armor_file)
@@ -188,6 +200,18 @@ if __name__ == "__main__":
         "--num", default=2, type=int,
         help="The number of armor pieces from each category to keep"
     )
+    parser.add_argument(
+        "--hunter_exclude", default="Resilience", type=str,
+        help="Semicolon separated list of high stat rolls to exclude from Hunter armor pieces."
+    )
+    parser.add_argument(
+        "--titan_exclude", default="", type=str,
+        help="Semicolon separated list of high stat rolls to exclude from Titan armor pieces."
+    )
+    parser.add_argument(
+        "--warlock_exclude", default="Resilience", type=str,
+        help="Semicolon separated list of high stat rolls to exclude from Warlock armor pieces."
+    )
 
     args = parser.parse_args()
 
@@ -196,5 +220,8 @@ if __name__ == "__main__":
         args.min_points,
         args.point_threshold,
         args.min_stat_total,
-        args.num
+        args.num,
+        [stat.title() for stat in args.hunter_exclude.split(";")],
+        [stat.title() for stat in args.titan_exclude.split(";")],
+        [stat.title() for stat in args.warlock_exclude.split(";")]
     )
