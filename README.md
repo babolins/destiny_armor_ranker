@@ -30,3 +30,4 @@ Destiny Armor Ranker has been tested using:
 * Python 3.9.7
 * Pandas 1.3.3
 * Numpy 1.21.2
+* Scipy 1.8.0
