@@ -7,7 +7,6 @@ from pathlib import Path
 from argparse import ArgumentParser
 from scipy.sparse import csr_matrix, csc_matrix
 from scipy.sparse.csgraph import maximum_bipartite_matching, min_weight_full_bipartite_matching
-from scipy.optimize import linear_sum_assignment
 
 
 def select_armor(data, class_, type_, combos, N):
